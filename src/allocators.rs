@@ -1,5 +1,6 @@
 use crate::{CoreAllocator, CoreGroup, CoreIndex};
 use hwloc::{CpuSet, ObjectType};
+use std::fmt::{Debug, Formatter};
 use std::mem::replace;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -66,6 +67,16 @@ impl CoreAllocator for GroupedAllocator {
         }
 
         None
+    }
+}
+impl Debug for GroupedAllocator {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let groups = self
+            .groups
+            .iter()
+            .map(|x| CoreGroup::cores(x.group.clone()))
+            .collect::<Vec<_>>();
+        groups.fmt(f)
     }
 }
 pub struct SequentialAllocator;
