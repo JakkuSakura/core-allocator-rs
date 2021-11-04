@@ -122,12 +122,13 @@ impl HierarchicalAllocator {
         let mut groups = GroupedAllocator::new();
         let mut allow = CpuSet::new();
         if let Some(allow_cpu) = self.on_cpus {
-            for cpu in topo.objects_with_type(&ObjectType::Package).unwrap() {
-                if allow_cpu
-                    .iter()
-                    .find(|x| **x == cpu.os_index() as _)
-                    .is_some()
-                {
+            for (i, cpu) in topo
+                .objects_with_type(&ObjectType::Package)
+                .unwrap()
+                .iter()
+                .enumerate()
+            {
+                if allow_cpu.iter().find(|x| **x == i).is_some() {
                     for bit in cpu.allowed_cpuset().unwrap() {
                         allow.set(bit);
                     }
