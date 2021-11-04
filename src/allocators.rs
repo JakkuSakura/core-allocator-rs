@@ -65,6 +65,12 @@ pub struct HierarchicalAllocator {
     on_cpus: Option<Vec<usize>>,
 }
 impl HierarchicalAllocator {
+    // only for references: see also hwloc-ls
+    pub const PHYSICAL_CPU: usize = 1;
+    pub const L3_CACHE: usize = 2;
+    pub const L2_CACHE: usize = 3;
+    pub const LOGICAL_CORE: usize = 4;
+
     pub fn new_at_depth(depth: usize) -> Self {
         Self {
             depth,
@@ -98,13 +104,16 @@ impl HierarchicalAllocator {
         for object in topo.objects_at_depth(depth as u32).iter() {
             let cpu_set = object.allowed_cpuset();
             match cpu_set {
-                Some(cpu_set) => groups.add_group(
-                    cpu_set
+                Some(cpu_set) => {
+                    let group = cpu_set
                         .into_iter()
                         .filter(|x| allow.is_set(*x))
                         .map(|x| CoreIndex::new(x as _))
-                        .collect(),
-                ),
+                        .collect::<Vec<_>>();
+                    if group.len() > 0 {
+                        groups.add_group(group)
+                    }
+                }
                 None => {}
             }
         }
