@@ -1,5 +1,5 @@
 use crate::{CoreAllocator, CoreGroup, CoreIndex};
-use hwloc::CpuSet;
+use hwloc2::CpuSet;
 use std::fmt::{Debug, Formatter};
 use std::mem::replace;
 use std::ops::Range;
@@ -118,7 +118,7 @@ impl HierarchicalAllocator {
     }
     pub fn finish(self) -> GroupedAllocator {
         let depth = self.depth;
-        let topo = hwloc::Topology::new();
+        let topo = hwloc2::Topology::new().unwrap();
         let mut groups = GroupedAllocator::new();
         let mut allow = CpuSet::new();
         if let Some(allow_cpu) = self.on_cpus {
@@ -128,7 +128,7 @@ impl HierarchicalAllocator {
                 .enumerate()
             {
                 if allow_cpu.iter().find(|x| **x == i).is_some() {
-                    for bit in cpu.allowed_cpuset().unwrap() {
+                    for bit in cpu.cpuset().unwrap() {
                         allow.set(bit);
                     }
                 }
@@ -136,10 +136,17 @@ impl HierarchicalAllocator {
         } else {
             allow = CpuSet::full();
         }
-        for object in topo.objects_at_depth(depth as u32).iter() {
-            let cpu_set = object.allowed_cpuset();
-            match cpu_set {
-                Some(cpu_set) => {
+        if depth == Self::L3_CACHE {
+            for object in topo.objects_at_depth(depth as u32).iter() {
+                let mut phys = CpuSet::new();
+                let mut hypers = CpuSet::new();
+                for l2 in object.children() {
+                    let mut cpu = l2.cpuset().unwrap().into_iter();
+                    phys.set(cpu.next().unwrap());
+                    hypers.set(cpu.next().unwrap());
+                    assert_eq!(cpu.next(), None);
+                }
+                for cpu_set in [phys, hypers] {
                     let group = cpu_set
                         .into_iter()
                         .filter(|x| allow.is_set(*x))
@@ -149,7 +156,23 @@ impl HierarchicalAllocator {
                         groups.add_group(group)
                     }
                 }
-                None => {}
+            }
+        } else {
+            for object in topo.objects_at_depth(depth as u32).iter() {
+                let cpu_set = object.cpuset();
+                match cpu_set {
+                    Some(cpu_set) => {
+                        let group = cpu_set
+                            .into_iter()
+                            .filter(|x| allow.is_set(*x))
+                            .map(|x| CoreIndex::new(x as _))
+                            .collect::<Vec<_>>();
+                        if group.len() > 0 {
+                            groups.add_group(group)
+                        }
+                    }
+                    None => {}
+                }
             }
         }
         groups

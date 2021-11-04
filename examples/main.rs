@@ -6,8 +6,7 @@ lazy_static! {
     pub static ref CORE_ALLOCATOR: Box<dyn CoreAllocator> = {
         // Box::new(HierarchicalAllocator::new_at_depth(3))
         //Box::new(SequentialAllocator::new_range(0..8, 2))
-        let mut allocator = HierarchicalAllocator::new_at_depth(HierarchicalAllocator::L2_CACHE).on_cpu(vec![0]).finish();
-        allocator.filter_group(|x| x.get_raw() != 3);
+        let mut allocator = HierarchicalAllocator::new_at_depth(HierarchicalAllocator::L3_CACHE).on_cpu(vec![0]).finish();
         Box::new(allocator)
     };
 }
