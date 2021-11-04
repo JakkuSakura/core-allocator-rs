@@ -18,23 +18,13 @@ pub trait CoreAllocator: Sync {
 #[derive(Debug)]
 pub enum CoreGroup<'a> {
     AnyCore,
-    Cores(Vec<CoreIndex>),
-    LockedCores(Vec<MutexGuard<'a, CoreIndex>>),
+    Cores(Vec<MutexGuard<'a, CoreIndex>>),
 }
 impl<'a> CoreGroup<'a> {
-    pub fn new(core: Vec<CoreIndex>) -> Self {
-        Self::Cores(core)
-    }
     pub fn bind_nth(&self, index: usize) -> Result<Cleanup<'a>> {
         match self {
             CoreGroup::AnyCore => Ok(Cleanup::new(None)),
             CoreGroup::Cores(cores) => {
-                let core = cores.get(index).with_context(|| {
-                    format!("Could not find {}th core in the group {:?}", index, cores)
-                })?;
-                core.bind()
-            }
-            CoreGroup::LockedCores(cores) => {
                 let core = cores.get(index).with_context(|| {
                     format!("Could not find {}th core in the group {:?}", index, cores)
                 })?;
