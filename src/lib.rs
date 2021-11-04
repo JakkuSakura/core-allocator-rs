@@ -2,6 +2,7 @@ mod allocators;
 mod bind_core;
 
 pub use allocators::*;
+use std::fmt::{Debug, Formatter};
 
 use crate::bind_core::{bind_to_cpu_set, to_cpu_set};
 use anyhow::Context;
@@ -10,25 +11,56 @@ use log::*;
 use nix::sched::CpuSet;
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::sync::MutexGuard;
+use std::sync::{Arc, Mutex};
 
 pub trait CoreAllocator: Sync {
     fn allocate_core(&self) -> Option<CoreGroup>;
 }
-#[derive(Debug)]
-pub enum CoreGroup<'a> {
-    AnyCore,
-    Cores(Vec<MutexGuard<'a, CoreIndex>>),
+
+pub struct CoreGroup {
+    inner: CoreGroupInner,
 }
-impl<'a> CoreGroup<'a> {
-    pub fn bind_nth(&self, index: usize) -> Result<Cleanup<'a>> {
-        match self {
-            CoreGroup::AnyCore => Ok(Cleanup::new(None)),
-            CoreGroup::Cores(cores) => {
+
+impl CoreGroup {
+    pub fn any_core() -> Self {
+        Self {
+            inner: CoreGroupInner::AnyCore,
+        }
+    }
+    pub fn cores(cores: Vec<Arc<Mutex<CoreIndex>>>) -> Self {
+        Self {
+            inner: CoreGroupInner::Cores(cores),
+        }
+    }
+}
+enum CoreGroupInner {
+    AnyCore,
+    Cores(Vec<Arc<Mutex<CoreIndex>>>),
+}
+impl Debug for CoreGroup {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.inner {
+            CoreGroupInner::AnyCore => f.write_str("AnyCore"),
+            CoreGroupInner::Cores(cores) => {
+                let mut numbers = vec![];
+                for c in cores {
+                    numbers.push(c.lock().unwrap().get_raw());
+                }
+                f.write_fmt(format_args!("Cores({:?})", numbers))
+            }
+        }
+    }
+}
+
+impl CoreGroup {
+    pub fn bind_nth(&self, index: usize) -> Result<Cleanup> {
+        match &self.inner {
+            CoreGroupInner::AnyCore => Ok(Cleanup::new(None)),
+            CoreGroupInner::Cores(cores) => {
                 let core = cores.get(index).with_context(|| {
                     format!("Could not find {}th core in the group {:?}", index, cores)
                 })?;
-                core.bind()
+                core.lock().unwrap().bind()
             }
         }
     }

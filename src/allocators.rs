@@ -2,29 +2,37 @@ use crate::{CoreAllocator, CoreGroup, CoreIndex};
 use hwloc::{CpuSet, ObjectType};
 use std::mem::replace;
 use std::ops::Range;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 pub struct NoAllocator;
 impl CoreAllocator for NoAllocator {
     fn allocate_core(&self) -> Option<CoreGroup> {
-        Some(CoreGroup::AnyCore)
+        Some(CoreGroup::any_core())
     }
 }
+struct ManagedGroup {
+    allocated: AtomicBool,
+    group: Vec<Arc<Mutex<CoreIndex>>>,
+}
+
 pub struct GroupedAllocator {
-    groups: Vec<Vec<Mutex<CoreIndex>>>,
+    groups: Vec<ManagedGroup>,
 }
 impl GroupedAllocator {
     pub fn new() -> Self {
         Self { groups: vec![] }
     }
     pub fn add_group(&mut self, group: Vec<CoreIndex>) {
-        self.groups
-            .push(group.into_iter().map(Mutex::new).collect());
+        self.groups.push(ManagedGroup {
+            allocated: AtomicBool::new(false),
+            group: group.into_iter().map(Mutex::new).map(Arc::new).collect(),
+        });
     }
     pub fn filter_group(&mut self, filter: impl Fn(&CoreIndex) -> bool) {
         let groups = replace(&mut self.groups, vec![]);
         'outer: for group in groups {
-            for core in &group {
+            for core in &group.group {
                 if !filter(&core.lock().unwrap()) {
                     continue 'outer;
                 }
@@ -36,11 +44,27 @@ impl GroupedAllocator {
 impl CoreAllocator for GroupedAllocator {
     fn allocate_core(&self) -> Option<CoreGroup> {
         for group in self.groups.iter() {
-            let locked_all: Vec<_> = group.iter().filter_map(|x| x.try_lock().ok()).collect();
-            if locked_all.len() == group.len() {
-                return Some(CoreGroup::Cores(locked_all));
+            if group.allocated.load(Ordering::Relaxed) == true {
+                let mut only = true;
+                for c in &group.group {
+                    if Arc::strong_count(c) > 1 {
+                        only = false;
+                        break;
+                    }
+                }
+                if only {
+                    group.allocated.store(false, Ordering::Relaxed);
+                }
+            }
+            if group
+                .allocated
+                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+                == Ok(false)
+            {
+                return Some(CoreGroup::cores(group.group.clone()));
             }
         }
+
         None
     }
 }
