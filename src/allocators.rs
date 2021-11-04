@@ -1,5 +1,5 @@
 use crate::{CoreAllocator, CoreGroup, CoreIndex};
-use hwloc::{CpuSet, ObjectType};
+use hwloc::CpuSet;
 use std::fmt::{Debug, Formatter};
 use std::mem::replace;
 use std::ops::Range;
