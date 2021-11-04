@@ -123,8 +123,7 @@ impl HierarchicalAllocator {
         let mut allow = CpuSet::new();
         if let Some(allow_cpu) = self.on_cpus {
             for (i, cpu) in topo
-                .objects_with_type(&ObjectType::Package)
-                .unwrap()
+                .objects_at_depth(HierarchicalAllocator::PHYSICAL_CPU as u32)
                 .iter()
                 .enumerate()
             {
