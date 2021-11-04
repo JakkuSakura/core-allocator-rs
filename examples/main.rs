@@ -4,7 +4,7 @@ use log::*;
 
 lazy_static! {
     pub static ref CORE_ALLOCATOR: Box<dyn CoreAllocator> =
-        Box::new(HierarchicalAllocator::new());
+        Box::new(HierarchicalAllocator::new_at_depth(3));
         //Box::new(SequentialAllocator::new_range(0..8, 2));
 }
 fn use_core(condition: &str, core_id: usize) -> bool {

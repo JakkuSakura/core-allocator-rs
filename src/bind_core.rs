@@ -8,9 +8,8 @@ pub fn to_io_error<T>(err: nix::Result<T>) -> std::io::Result<T> {
 }
 /// Returns previous CpuSet
 pub fn bind_to_cpu_set(cpuset: CpuSet) -> std::io::Result<CpuSet> {
-    let pid = unsafe { libc::gettid() };
-
     let pid = nix::unistd::gettid();
+
     // debug!("taskset -pc {} {}", set, pid);
     let previous = nix::sched::sched_getaffinity(pid)?;
     to_io_error(nix::sched::sched_setaffinity(pid, &cpuset))?;

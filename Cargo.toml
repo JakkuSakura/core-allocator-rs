@@ -10,6 +10,7 @@ anyhow = "*"
 hwloc = "*"
 lazy_static = "*"
 log = "*"
-env_logger = "*"
-libc = "*"
 nix = "*"
+
+[dev-dependencies]
+env_logger = "*"

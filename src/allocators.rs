@@ -38,22 +38,22 @@ impl CoreAllocator for SequentialAllocator {
 }
 pub struct HierarchicalAllocator;
 impl HierarchicalAllocator {
-    pub fn new() -> Self {
+    pub fn new_at_depth(depth: usize) -> SequentialAllocator {
         let topo = hwloc::Topology::new();
+        let mut groups = vec![];
 
-        for i in 0..topo.depth() {
-            println!("*** Objects at level {}", i);
-
-            for (idx, object) in topo.objects_at_depth(i).iter().enumerate() {
-                println!("{}: {} {:?}", idx, object, object.allowed_cpuset());
+        for object in topo.objects_at_depth(depth as u32).iter() {
+            let cpu_set = object.allowed_cpuset();
+            match cpu_set {
+                None => {}
+                Some(cpu_set) => groups.push(
+                    cpu_set
+                        .into_iter()
+                        .map(|x| Mutex::new(CoreIndex::new(x as _)))
+                        .collect(),
+                ),
             }
         }
-        panic!()
-    }
-}
-
-impl CoreAllocator for HierarchicalAllocator {
-    fn allocate_core(&self) -> Option<CoreGroup> {
-        None
+        SequentialAllocator { groups }
     }
 }
