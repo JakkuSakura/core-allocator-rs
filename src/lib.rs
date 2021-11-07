@@ -10,6 +10,7 @@ use anyhow::Result;
 use log::*;
 use nix::sched::CpuSet;
 use std::marker::PhantomData;
+use std::mem::forget;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -32,6 +33,33 @@ impl CoreGroup {
             inner: CoreGroupInner::Cores(cores),
         }
     }
+    pub fn reserve(&self) -> Vec<CoreIndex> {
+        match &self.inner {
+            CoreGroupInner::AnyCore => {
+                vec![] // no dedicated cores
+            }
+            CoreGroupInner::Cores(cores) => cores
+                .iter()
+                .map(|x| x.lock().unwrap())
+                .map(|x| {
+                    let id = CoreIndex::new(x.get_raw());
+                    forget(x);
+                    id
+                })
+                .collect(),
+        }
+    }
+    pub fn bind_nth(&self, index: usize) -> Result<Cleanup> {
+        match &self.inner {
+            CoreGroupInner::AnyCore => Ok(Cleanup::new(None)),
+            CoreGroupInner::Cores(cores) => {
+                let core = cores.get(index).with_context(|| {
+                    format!("Could not find {}th core in the group {:?}", index, cores)
+                })?;
+                core.lock().unwrap().bind()
+            }
+        }
+    }
 }
 enum CoreGroupInner {
     AnyCore,
@@ -47,20 +75,6 @@ impl Debug for CoreGroup {
                     numbers.push(c.lock().unwrap().get_raw());
                 }
                 f.write_fmt(format_args!("Cores({:?})", numbers))
-            }
-        }
-    }
-}
-
-impl CoreGroup {
-    pub fn bind_nth(&self, index: usize) -> Result<Cleanup> {
-        match &self.inner {
-            CoreGroupInner::AnyCore => Ok(Cleanup::new(None)),
-            CoreGroupInner::Cores(cores) => {
-                let core = cores.get(index).with_context(|| {
-                    format!("Could not find {}th core in the group {:?}", index, cores)
-                })?;
-                core.lock().unwrap().bind()
             }
         }
     }
@@ -94,6 +108,9 @@ impl<'a> Cleanup<'a> {
             prior_state,
             _phantom: Default::default(),
         }
+    }
+    pub fn detach(mut self) {
+        self.prior_state.take();
     }
 }
 

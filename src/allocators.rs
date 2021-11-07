@@ -5,7 +5,23 @@ use std::mem::replace;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-
+#[cfg(feature = "hwloc2")]
+lazy_static::lazy_static! {
+    static ref ALL_CORES: Arc<Vec<Arc<Mutex<CoreIndex>>>> = {
+        let topo = hwloc2::Topology::new().unwrap();
+        let cpuset = topo.object_at_root().cpuset().unwrap();
+        let cores = cpuset.into_iter().map(|x| x as _).map(CoreIndex::new).map(Mutex::new).map(Arc::new).collect();
+        Arc::new(cores)
+    };
+}
+#[cfg(not(feature = "hwloc2"))]
+lazy_static::lazy_static! {
+    static ref ALL_CORES: Arc<Vec<Arc<Mutex<CoreIndex>>>> = {
+        let cpuset = 0..256;
+        let cores = cpuset.into_iter().map(|x| x as _).map(CoreIndex::new).map(Mutex::new).map(Arc::new).collect();
+        Arc::new(cores)
+    };
+}
 pub struct NoAllocator;
 impl CoreAllocator for NoAllocator {
     fn allocate_core(&self) -> Option<CoreGroup> {
@@ -24,10 +40,10 @@ impl GroupedAllocator {
     pub fn new() -> Self {
         Self { groups: vec![] }
     }
-    pub fn add_group(&mut self, group: Vec<CoreIndex>) {
+    pub fn add_group(&mut self, group: Vec<Arc<Mutex<CoreIndex>>>) {
         self.groups.push(ManagedGroup {
             allocated: AtomicBool::new(false),
-            group: group.into_iter().map(Mutex::new).map(Arc::new).collect(),
+            group,
         });
     }
     pub fn filter_group(&mut self, filter: impl Fn(&CoreIndex) -> bool) {
@@ -86,7 +102,7 @@ impl SequentialAllocator {
         let mut groups = GroupedAllocator::new();
         let mut group = vec![];
         for i in range {
-            group.push(CoreIndex::new(i));
+            group.push(Arc::clone(&ALL_CORES.get(i).unwrap()));
             if group.len() == width {
                 groups.add_group(replace(&mut group, vec![]));
             }
@@ -95,6 +111,7 @@ impl SequentialAllocator {
     }
 }
 
+#[cfg(feature = "hwloc2")]
 pub struct HierarchicalAllocator {
     depth: usize,
     on_cpus: Option<Vec<usize>>,
@@ -150,7 +167,8 @@ impl HierarchicalAllocator {
                     let group = cpu_set
                         .into_iter()
                         .filter(|x| allow.is_set(*x))
-                        .map(|x| CoreIndex::new(x as _))
+                        .flat_map(|x| ALL_CORES.get(x as usize))
+                        .map(Arc::clone)
                         .collect::<Vec<_>>();
                     if group.len() > 0 {
                         groups.add_group(group)
@@ -165,7 +183,8 @@ impl HierarchicalAllocator {
                         let group = cpu_set
                             .into_iter()
                             .filter(|x| allow.is_set(*x))
-                            .map(|x| CoreIndex::new(x as _))
+                            .flat_map(|x| ALL_CORES.get(x as usize))
+                            .map(Arc::clone)
                             .collect::<Vec<_>>();
                         if group.len() > 0 {
                             groups.add_group(group)

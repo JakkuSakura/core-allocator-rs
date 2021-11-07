@@ -1,6 +1,6 @@
 [package]
 name = "core-allocator"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "A crate to help set core affinity"
 repository = "https://github.com/qiujiangkun/core-allocator-rs"
@@ -10,10 +10,13 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-hwloc2 = "2.2.0"
+hwloc2 = { version = "2.2.0", optional = true }
 log = "0.4"
 nix = "0.23"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 env_logger = "0.9"
-lazy_static = "1.4"
+
+[features]
+default = ["hwloc2"]
