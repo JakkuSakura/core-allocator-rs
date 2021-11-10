@@ -116,6 +116,7 @@ pub struct HierarchicalAllocator {
     depth: usize,
     on_cpus: Option<Vec<usize>>,
 }
+#[cfg(feature = "hwloc2")]
 impl HierarchicalAllocator {
     // only for references: see also hwloc-ls
     pub const PHYSICAL_CPU: usize = 1;
