@@ -1,5 +1,5 @@
 use crate::{CoreAllocator, CoreGroup, CoreIndex};
-use hwloc2::CpuSet;
+use hwloc2::ObjectType;
 use std::fmt::{Debug, Formatter};
 use std::mem::replace;
 use std::ops::Range;
@@ -113,35 +113,32 @@ impl SequentialAllocator {
 
 #[cfg(feature = "hwloc2")]
 pub struct HierarchicalAllocator {
-    depth: usize,
+    object_type: hwloc2::ObjectType,
     on_cpus: Option<Vec<usize>>,
 }
 #[cfg(feature = "hwloc2")]
 impl HierarchicalAllocator {
-    // only for references: see also hwloc-ls
-    pub const PHYSICAL_CPU: usize = 1;
-    pub const L3_CACHE: usize = 2;
-    pub const L2_CACHE: usize = 3;
-    pub const LOGICAL_CORE: usize = 4;
-
-    pub fn new_at_depth(depth: usize) -> Self {
+    pub fn new_at_depth(object_type: hwloc2::ObjectType) -> Self {
         Self {
-            depth,
+            object_type,
             on_cpus: None,
         }
     }
+
     pub fn on_cpu(mut self, on_cpus: Vec<usize>) -> Self {
         self.on_cpus = Some(on_cpus);
         self
     }
+
     pub fn finish(self) -> GroupedAllocator {
-        let depth = self.depth;
+        let obj_type = self.object_type;
         let topo = hwloc2::Topology::new().unwrap();
         let mut groups = GroupedAllocator::new();
-        let mut allow = CpuSet::new();
+        let mut allow = hwloc2::CpuSet::new();
         if let Some(allow_cpu) = self.on_cpus {
             for (i, cpu) in topo
-                .objects_at_depth(HierarchicalAllocator::PHYSICAL_CPU as u32)
+                .objects_with_type(&hwloc2::ObjectType::Package)
+                .unwrap()
                 .iter()
                 .enumerate()
             {
@@ -152,12 +149,12 @@ impl HierarchicalAllocator {
                 }
             }
         } else {
-            allow = CpuSet::full();
+            allow = hwloc2::CpuSet::full();
         }
-        if depth == Self::L3_CACHE {
-            for object in topo.objects_at_depth(depth as u32).iter() {
-                let mut phys = CpuSet::new();
-                let mut hypers = CpuSet::new();
+        if obj_type == ObjectType::L3Cache {
+            for object in topo.objects_with_type(&obj_type).unwrap().iter() {
+                let mut phys = hwloc2::CpuSet::new();
+                let mut hypers = hwloc2::CpuSet::new();
                 for l2 in object.children() {
                     let mut cpu = l2.cpuset().unwrap().into_iter();
                     phys.set(cpu.next().unwrap());
@@ -177,7 +174,7 @@ impl HierarchicalAllocator {
                 }
             }
         } else {
-            for object in topo.objects_at_depth(depth as u32).iter() {
+            for object in topo.objects_with_type(&obj_type).unwrap().iter() {
                 let cpu_set = object.cpuset();
                 match cpu_set {
                     Some(cpu_set) => {
