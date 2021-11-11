@@ -1,24 +1,23 @@
-use crate::{CoreAllocator, CoreGroup, CoreIndex};
+use crate::{CoreAllocator, CoreGroup, ManagedCore, Resource};
 use hwloc2::ObjectType;
 use std::fmt::{Debug, Formatter};
 use std::mem::replace;
 use std::ops::Range;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 #[cfg(feature = "hwloc2")]
 lazy_static::lazy_static! {
-    static ref ALL_CORES: Arc<Vec<Arc<Mutex<CoreIndex>>>> = {
+    static ref ALL_CORES: Arc<Vec<Arc<ManagedCore >>> = {
         let topo = hwloc2::Topology::new().unwrap();
         let cpuset = topo.object_at_root().cpuset().unwrap();
-        let cores = cpuset.into_iter().map(|x| x as _).map(CoreIndex::new).map(Mutex::new).map(Arc::new).collect();
+        let cores = cpuset.into_iter().map(|x| x as _).map(ManagedCore::new).map(Arc::new).collect();
         Arc::new(cores)
     };
 }
 #[cfg(not(feature = "hwloc2"))]
 lazy_static::lazy_static! {
-    static ref ALL_CORES: Arc<Vec<Arc<Mutex<CoreIndex>>>> = {
+    static ref ALL_CORES: Arc<Vec<Arc<CoreIndex>>> = {
         let cpuset = 0..256;
-        let cores = cpuset.into_iter().map(|x| x as _).map(CoreIndex::new).map(Mutex::new).map(Arc::new).collect();
+        let cores = cpuset.into_iter().map(|x| x as _).map(CoreIndex::new).map(Arc::new).collect();
         Arc::new(cores)
     };
 }
@@ -29,8 +28,8 @@ impl CoreAllocator for NoAllocator {
     }
 }
 struct ManagedGroup {
-    allocated: AtomicBool,
-    group: Vec<Arc<Mutex<CoreIndex>>>,
+    resource: Resource,
+    group: Vec<Arc<ManagedCore>>,
 }
 
 pub struct GroupedAllocator {
@@ -40,17 +39,17 @@ impl GroupedAllocator {
     pub fn new() -> Self {
         Self { groups: vec![] }
     }
-    pub fn add_group(&mut self, group: Vec<Arc<Mutex<CoreIndex>>>) {
+    pub fn add_group(&mut self, group: Vec<Arc<ManagedCore>>) {
         self.groups.push(ManagedGroup {
-            allocated: AtomicBool::new(false),
+            resource: Resource::new(),
             group,
         });
     }
-    pub fn filter_group(&mut self, filter: impl Fn(&CoreIndex) -> bool) {
+    pub fn filter_group(&mut self, filter: impl Fn(&ManagedCore) -> bool) {
         let groups = replace(&mut self.groups, vec![]);
         'outer: for group in groups {
             for core in &group.group {
-                if !filter(&core.lock().unwrap()) {
+                if !filter(core) {
                     continue 'outer;
                 }
             }
@@ -61,24 +60,16 @@ impl GroupedAllocator {
 impl CoreAllocator for GroupedAllocator {
     fn allocate_core(&self) -> Option<CoreGroup> {
         for group in self.groups.iter() {
-            if group.allocated.load(Ordering::Relaxed) == true {
-                let mut only = true;
-                for c in &group.group {
-                    if Arc::strong_count(c) > 1 {
-                        only = false;
-                        break;
+            if let Ok(taken) = group.resource.try_lock() {
+                let mut released = true;
+                for core in &group.group {
+                    if core.taken.is_taken() {
+                        released = false;
                     }
                 }
-                if only {
-                    group.allocated.store(false, Ordering::Relaxed);
+                if released {
+                    return Some(CoreGroup::cores(taken, group.group.clone()));
                 }
-            }
-            if group
-                .allocated
-                .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-                == Ok(false)
-            {
-                return Some(CoreGroup::cores(group.group.clone()));
             }
         }
 
@@ -90,7 +81,7 @@ impl Debug for GroupedAllocator {
         let groups = self
             .groups
             .iter()
-            .map(|x| CoreGroup::cores(x.group.clone()))
+            .map(|x| x.group.iter().map(|x| x.index).collect::<Vec<_>>())
             .collect::<Vec<_>>();
         groups.fmt(f)
     }
