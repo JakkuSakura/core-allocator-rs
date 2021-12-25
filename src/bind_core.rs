@@ -1,12 +1,14 @@
-use nix::sched::CpuSet;
-
+use crate::CpuSet;
+#[allow(dead_code)]
 pub fn to_io_error<T>(err: nix::Result<T>) -> std::io::Result<T> {
     match err {
         Ok(x) => Ok(x),
         Err(errno) => Err(errno.into()),
     }
 }
+
 /// Returns previous CpuSet
+#[cfg(not(target_os = "macos"))]
 pub fn bind_to_cpu_set(cpuset: CpuSet) -> std::io::Result<CpuSet> {
     let pid = nix::unistd::gettid();
 
@@ -16,7 +18,12 @@ pub fn bind_to_cpu_set(cpuset: CpuSet) -> std::io::Result<CpuSet> {
     Ok(previous)
 }
 
-pub fn to_cpu_set(cores: impl IntoIterator<Item = usize>) -> CpuSet {
+#[cfg(target_os = "macos")]
+pub fn bind_to_cpu_set(_cpuset: CpuSet) -> std::io::Result<CpuSet> {
+    Ok(CpuSet)
+}
+
+pub fn to_cpu_set(cores: impl IntoIterator<Item=usize>) -> CpuSet {
     let mut set = CpuSet::new();
     let mut is_set = false;
     for i in cores {

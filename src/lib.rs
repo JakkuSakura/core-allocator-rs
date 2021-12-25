@@ -1,16 +1,20 @@
 mod allocators;
 mod bind_core;
+mod reexport;
 mod resource;
+
 pub(crate) use resource::*;
 
 pub use allocators::*;
+pub use reexport::*;
+
 use std::fmt::{Debug, Formatter};
 
 use crate::bind_core::{bind_to_cpu_set, to_cpu_set};
 use anyhow::Result;
 use anyhow::{anyhow, Context};
 use log::*;
-use nix::sched::CpuSet;
+
 use std::marker::PhantomData;
 use std::mem::forget;
 use std::rc::Rc;
